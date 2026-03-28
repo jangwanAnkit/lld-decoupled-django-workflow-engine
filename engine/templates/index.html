@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Workflow Engine Test UI</title>
+    <style>
+        body { font-family: system-ui, -apple-system, sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; color: #333; }
+        .card { border: 1px solid #ddd; border-radius: 8px; padding: 1.5rem; margin-bottom: 1.5rem; background: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        h1, h2, h3 { color: #111; }
+        button { background: #0066cc; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; font-size: 1rem; }
+        button:hover { background: #0052a3; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        input[type="text"] { padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px; width: 100%; box-sizing: border-box; margin-bottom: 1rem; }
+        pre { background: #1e1e1e; color: #d4d4d4; padding: 1rem; border-radius: 4px; overflow-x: auto; font-size: 0.9rem; }
+        .status-badge { display: inline-block; padding: 0.25rem 0.5rem; border-radius: 999px; font-size: 0.8rem; font-weight: bold; }
+        .bg-running { background: #fff3cd; color: #856404; }
+        .bg-completed { background: #d4edda; color: #155724; }
+        .bg-failed { background: #f8d7da; color: #721c24; }
+        .flex { display: flex; gap: 1rem; align-items: flex-start; }
+        .flex-col { display: flex; flex-direction: column; gap: 0.5rem; }
+        .mt-4 { margin-top: 1rem; }
+    </style>
+</head>
+<body>
+    <h1>🚀 Workflow Engine Test UI</h1>
+
+    <div class="card">
+        <h2>1. Start a New Workflow</h2>
+        <p>This will start the "User Onboarding" workflow which goes: <code>KYC &rarr; Email &rarr; Manual Review</code></p>
+        
+        <div class="flex-col" style="max-width: 300px;">
+            <label for="userIdInput">User ID to run KYC on</label>
+            <input type="text" id="userIdInput" placeholder="Enter an even/odd number" value="1">
+            <small style="color: #666; margin-top: -10px; margin-bottom: 10px;">Even numbers pass KYC, odd numbers fail and go to manual review.</small>
+            
+            <button id="startBtn" onclick="startWorkflow()">Start Workflow</button>
+        </div>
+        
+        <div id="startResult" class="mt-4" style="display: none;">
+            <p><strong>Started Instance ID:</strong> <span id="instanceIdDisplay" style="font-family: monospace; background: #eee; padding: 2px 5px; border-radius: 3px;"></span></p>
+            <button onclick="pollStatus()" style="background: #28a745;">Check Status Below &darr;</button>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>2. Check Workflow Status</h2>
+        <div class="flex">
+            <input type="text" id="statusIdInput" placeholder="Enter Instance UUID">
+            <button id="statusBtn" onclick="pollStatus()">Get Status</button>
+        </div>
+        
+        <div id="statusResult" class="mt-4" style="display: none;">
+            <h3>Current State</h3>
+            <p><strong>Status:</strong> <span id="statusBadge" class="status-badge"></span></p>
+            <p><strong>Current Step:</strong> <span id="currentStepValue"></span></p>
+            <p><strong>Version:</strong> <span id="versionValue"></span></p>
+            
+            <h3 class="mt-4">Context / Data</h3>
+            <pre id="contextRaw"></pre>
+            
+            <h3 class="mt-4">Full Response</h3>
+            <pre id="statusRaw"></pre>
+        </div>
+    </div>
+
+    <script>
+        // We need to fetch the active definition ID from the backend to do this dynamically, 
+        // but for this MVP UI we can just hardcode the seed ID or ask the user to provide it.
+        // Even better, let's look it up or just use a dummy one if we just seeded it.
+        let activeInstanceId = null;
+
+        async function startWorkflow() {
+            const btn = document.getElementById('startBtn');
+            const resultDiv = document.getElementById('startResult');
+            const idDisplay = document.getElementById('instanceIdDisplay');
+            const userId = parseInt(document.getElementById('userIdInput').value) || 1;
+            
+            btn.disabled = true;
+            btn.textContent = 'Starting...';
+
+            try {
+                // In a real app we'd fetch the definition list first. We seeded it with a known prefix but random UUID suffix.
+                // Since this UI is purely for local testing in this exercise, we will assume there is ONE definition and just grab it in the backend view, or we can use a hardcoded one if known.
+                // Wait! We can create another endpoint to list definitions or just use a default fallback in the view if ID is missing.
+                
+                const response = await fetch('/start/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        definition_id: "default", // We need our backend view to default to the first available definition if this is passed
+                        context: { user_id: userId }
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (data.error) {
+                    alert('Error: ' + data.error);
+                } else {
+                    activeInstanceId = data.instance_id;
+                    idDisplay.textContent = activeInstanceId;
+                    document.getElementById('statusIdInput').value = activeInstanceId;
+                    resultDiv.style.display = 'block';
+                }
+            } catch (err) {
+                alert('Request failed: ' + err);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Start Workflow';
+            }
+        }
+
+        async function pollStatus() {
+            const inputId = document.getElementById('statusIdInput').value.trim();
+            if (!inputId) return alert('Enter an Instance ID first');
+            
+            const btn = document.getElementById('statusBtn');
+            const resultDiv = document.getElementById('statusResult');
+            
+            btn.disabled = true;
+            btn.textContent = 'Fetching...';
+
+            try {
+                const response = await fetch(`/status/${inputId}/`);
+                const data = await response.json();
+                
+                if (data.error) {
+                    alert('Error: ' + data.error);
+                    resultDiv.style.display = 'none';
+                    return;
+                }
+                
+                // Update Badge
+                const badge = document.getElementById('statusBadge');
+                badge.textContent = data.status;
+                badge.className = 'status-badge';
+                if (data.status === 'COMPLETED') badge.classList.add('bg-completed');
+                else if (data.status === 'RUNNING') badge.classList.add('bg-running');
+                else badge.classList.add('bg-failed');
+                
+                document.getElementById('currentStepValue').textContent = data.current_step;
+                document.getElementById('versionValue').textContent = data.version;
+                
+                document.getElementById('contextRaw').textContent = JSON.stringify(data.context, null, 2);
+                document.getElementById('statusRaw').textContent = JSON.stringify(data, null, 2);
+                
+                resultDiv.style.display = 'block';
+            } catch (err) {
+                alert('Request failed: ' + err);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Get Status';
+            }
+        }
+    </script>
+</body>
+</html>
